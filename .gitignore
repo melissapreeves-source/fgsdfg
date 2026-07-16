@@ -6,5 +6,6 @@ __pycache__/
 *.mp4
 temp_*
 *.log
-venv/
-.venv/
+node_modules/
+*.raw
+/tmp/
