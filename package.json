@@ -1,9 +1,12 @@
 {
   "name": "video-frame-server",
   "version": "1.0.0",
-  "private": true,
   "scripts": {
-    "dev": "vercel dev",
-    "deploy": "vercel --prod"
+    "start": "node api/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "fluent-ffmpeg": "^2.1.2"
   }
 }
