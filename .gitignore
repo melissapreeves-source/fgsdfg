@@ -1,11 +1,4 @@
-__pycache__/
-*.pyc
-.env
-.vercel
-.DS_Store
-*.mp4
-temp_*
-*.log
 node_modules/
-*.raw
-/tmp/
+.vercel/
+*.log
+.env
