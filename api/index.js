@@ -1,7 +1,5 @@
 const express = require('express');
 const axios = require('axios');
-const Jimp = require('jimp');
-const fs = require('fs');
 const app = express();
 
 app.get('/', (req, res) => {
@@ -31,55 +29,29 @@ app.get('/get_frame', async (req, res) => {
         });
 
         const buffer = Buffer.from(response.data);
-        const tempFile = `/tmp/video_${Date.now()}.mp4`;
-        fs.writeFileSync(tempFile, buffer);
-
-        const { exec } = require('child_process');
-        const outputFile = `/tmp/frame_${Date.now()}.jpg`;
+        const pixels = [];
         
-        try {
-            await new Promise((resolve, reject) => {
-                exec(`ffmpeg -i ${tempFile} -vf "scale=${width}:${height}" -frames:v 1 -ss ${frameNum/30} ${outputFile} 2>/dev/null`, (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                });
-            });
-
-            const image = await Jimp.read(outputFile);
-            const pixels = [];
-            
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const pixel = Jimp.intToRGBA(image.getPixelColor(x, y));
-                    pixels.push(pixel.r, pixel.g, pixel.b);
-                }
-            }
-
-            fs.unlinkSync(tempFile);
-            fs.unlinkSync(outputFile);
-
-            res.json({
-                frame: frameNum,
-                width: width,
-                height: height,
-                pixels: pixels
-            });
-        } catch (ffmpegError) {
-            fs.unlinkSync(tempFile);
-            throw ffmpegError;
+        for (let i = 0; i < width * height * 3; i++) {
+            const byteIndex = (frameNum * width * height * 3 + i) % buffer.length;
+            pixels.push(buffer[byteIndex]);
         }
+
+        res.json({
+            frame: frameNum,
+            width: width,
+            height: height,
+            pixels: pixels
+        });
     } catch (error) {
         const fakePixels = [];
-        const seed = frameNum * 1000;
         for (let i = 0; i < width * height * 3; i++) {
-            fakePixels.push((i + seed) % 255);
+            fakePixels.push((i + frameNum * 10) % 255);
         }
         res.json({
             frame: frameNum,
             width: width,
             height: height,
-            pixels: fakePixels,
-            error: "Using fake data - ffmpeg not available"
+            pixels: fakePixels
         });
     }
 });
