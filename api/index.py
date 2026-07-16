@@ -4,6 +4,7 @@ import urllib.request
 import os
 import tempfile
 import numpy as np
+import sys
 
 app = Flask(__name__)
 
@@ -17,11 +18,11 @@ def video_info():
     if not video_url:
         return jsonify({'error': 'Missing url parameter'}), 400
     
-    temp_file = None
     try:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-        urllib.request.urlretrieve(video_url, temp_file.name)
         temp_file.close()
+        
+        urllib.request.urlretrieve(video_url, temp_file.name)
         
         cap = cv2.VideoCapture(temp_file.name)
         fps = cap.get(cv2.CAP_PROP_FPS)
@@ -33,17 +34,12 @@ def video_info():
         os.unlink(temp_file.name)
         
         return jsonify({
-            'total_frames': total_frames,
-            'fps': int(fps),
+            'total_frames': total_frames if total_frames > 0 else 300,
+            'fps': int(fps) if fps > 0 else 30,
             'width': width,
             'height': height
         })
     except Exception as e:
-        if temp_file and os.path.exists(temp_file.name):
-            try:
-                os.unlink(temp_file.name)
-            except:
-                pass
         return jsonify({'error': str(e)}), 500
 
 @app.route('/get_frame')
@@ -56,20 +52,18 @@ def get_frame():
     if not video_url:
         return jsonify({'error': 'Missing url parameter'}), 400
     
-    temp_file = None
     try:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-        urllib.request.urlretrieve(video_url, temp_file.name)
         temp_file.close()
+        
+        urllib.request.urlretrieve(video_url, temp_file.name)
         
         cap = cv2.VideoCapture(temp_file.name)
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
         ret, frame = cap.read()
         cap.release()
         
-        # Delete video file immediately after reading
         os.unlink(temp_file.name)
-        temp_file = None
         
         if not ret:
             return jsonify({'error': 'Frame not found'}), 404
@@ -78,10 +72,6 @@ def get_frame():
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pixels = frame_rgb.flatten().tolist()
         
-        # Limit pixel data size
-        if len(pixels) > 100000:
-            pixels = pixels[:100000]
-        
         return jsonify({
             'frame': frame_num,
             'width': width,
@@ -89,11 +79,6 @@ def get_frame():
             'pixels': pixels
         })
     except Exception as e:
-        if temp_file and os.path.exists(temp_file.name):
-            try:
-                os.unlink(temp_file.name)
-            except:
-                pass
         return jsonify({'error': str(e)}), 500
 
 app = app
