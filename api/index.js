@@ -1,13 +1,13 @@
 const express = require('express');
 const axios = require('axios');
 const ffmpeg = require('fluent-ffmpeg');
-const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 const fs = require('fs');
 const path = require('path');
 
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
-
 const app = express();
+
+// Use system ffmpeg on Vercel
+ffmpeg.setFfmpegPath('/usr/bin/ffmpeg');
 
 app.get('/', (req, res) => {
     res.json({ status: "Video frame server is running!" });
