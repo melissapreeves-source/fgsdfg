@@ -1,8 +1,11 @@
 const express = require('express');
 const axios = require('axios');
-const { spawn } = require('child_process');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 const fs = require('fs');
 const path = require('path');
+
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 const app = express();
 
@@ -32,27 +35,16 @@ app.get('/video_info', async (req, res) => {
             writer.on('error', reject);
         });
 
-        const ffprobe = spawn('ffprobe', [
-            '-v', 'error',
-            '-show_entries', 'stream=width,height,nb_frames,r_frame_rate',
-            '-of', 'json',
-            tempFile
-        ]);
-
-        let output = '';
-        ffprobe.stdout.on('data', (data) => {
-            output += data.toString();
-        });
-
-        await new Promise((resolve, reject) => {
-            ffprobe.on('close', resolve);
-            ffprobe.on('error', reject);
+        const info = await new Promise((resolve, reject) => {
+            ffmpeg.ffprobe(tempFile, (err, metadata) => {
+                if (err) reject(err);
+                else resolve(metadata);
+            });
         });
 
         fs.unlinkSync(tempFile);
 
-        const info = JSON.parse(output);
-        const stream = info.streams[0];
+        const stream = info.streams.find(s => s.codec_type === 'video');
         const fpsParts = stream.r_frame_rate.split('/');
         const fps = parseInt(fpsParts[0]) / parseInt(fpsParts[1]);
 
@@ -95,20 +87,16 @@ app.get('/get_frame', async (req, res) => {
 
         const outputFile = path.join('/tmp', `frame_${Date.now()}.raw`);
         
-        const ffmpeg = spawn('ffmpeg', [
-            '-i', tempFile,
-            '-vf', `scale=${width}:${height},format=rgb24`,
-            '-frames:v', '1',
-            '-select_streams', 'v:0',
-            '-f', 'rawvideo',
-            '-pix_fmt', 'rgb24',
-            '-ss', `${frameNum / 30}`,
-            outputFile
-        ]);
-
         await new Promise((resolve, reject) => {
-            ffmpeg.on('close', resolve);
-            ffmpeg.on('error', reject);
+            ffmpeg(tempFile)
+                .videoFilters(`scale=${width}:${height},format=rgb24`)
+                .frames(1)
+                .seekInput(frameNum / 30)
+                .outputOptions(['-f rawvideo', '-pix_fmt rgb24'])
+                .output(outputFile)
+                .on('end', resolve)
+                .on('error', reject)
+                .run();
         });
 
         const pixelData = fs.readFileSync(outputFile);
