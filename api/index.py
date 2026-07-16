@@ -1,6 +1,5 @@
 from flask import Flask, jsonify, request
 import cv2
-import base64
 import urllib.request
 import os
 import tempfile
