@@ -2,14 +2,18 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.js",
-      "use": "@vercel/node"
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "pythonVersion": "3.9",
+        "maxDuration": 10
+      }
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "api/index.js"
+      "dest": "api/index.py"
     }
   ]
 }
