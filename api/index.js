@@ -1,13 +1,12 @@
 const express = require('express');
 const axios = require('axios');
-const ffmpeg = require('fluent-ffmpeg');
+const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
 const app = express();
-
-// Use system ffmpeg on Vercel
-ffmpeg.setFfmpegPath('/usr/bin/ffmpeg');
 
 app.get('/', (req, res) => {
     res.json({ status: "Video frame server is running!" });
@@ -20,31 +19,16 @@ app.get('/video_info', async (req, res) => {
     }
 
     try {
-        const response = await axios({
-            method: 'get',
-            url: videoUrl,
-            responseType: 'stream'
-        });
-
         const tempFile = path.join('/tmp', `video_${Date.now()}.mp4`);
-        const writer = fs.createWriteStream(tempFile);
-        response.data.pipe(writer);
-
-        await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-
-        const info = await new Promise((resolve, reject) => {
-            ffmpeg.ffprobe(tempFile, (err, metadata) => {
-                if (err) reject(err);
-                else resolve(metadata);
-            });
-        });
-
+        
+        await execPromise(`curl -L -o ${tempFile} "${videoUrl}"`);
+        
+        const { stdout } = await execPromise(`ffprobe -v error -show_entries stream=width,height,nb_frames,r_frame_rate -of json ${tempFile}`);
+        const info = JSON.parse(stdout);
+        
         fs.unlinkSync(tempFile);
 
-        const stream = info.streams.find(s => s.codec_type === 'video');
+        const stream = info.streams[0];
         const fpsParts = stream.r_frame_rate.split('/');
         const fps = parseInt(fpsParts[0]) / parseInt(fpsParts[1]);
 
@@ -70,34 +54,14 @@ app.get('/get_frame', async (req, res) => {
     }
 
     try {
-        const response = await axios({
-            method: 'get',
-            url: videoUrl,
-            responseType: 'stream'
-        });
-
         const tempFile = path.join('/tmp', `video_${Date.now()}.mp4`);
-        const writer = fs.createWriteStream(tempFile);
-        response.data.pipe(writer);
-
-        await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-
         const outputFile = path.join('/tmp', `frame_${Date.now()}.raw`);
         
-        await new Promise((resolve, reject) => {
-            ffmpeg(tempFile)
-                .videoFilters(`scale=${width}:${height},format=rgb24`)
-                .frames(1)
-                .seekInput(frameNum / 30)
-                .outputOptions(['-f rawvideo', '-pix_fmt rgb24'])
-                .output(outputFile)
-                .on('end', resolve)
-                .on('error', reject)
-                .run();
-        });
+        await execPromise(`curl -L -o ${tempFile} "${videoUrl}"`);
+        
+        await execPromise(
+            `ffmpeg -i ${tempFile} -vf "scale=${width}:${height},format=rgb24" -frames:v 1 -f rawvideo -pix_fmt rgb24 -ss ${frameNum/30} ${outputFile}`
+        );
 
         const pixelData = fs.readFileSync(outputFile);
         const pixels = Array.from(pixelData);
