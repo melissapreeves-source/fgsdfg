@@ -6,8 +6,6 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "axios": "^1.6.0",
-    "jimp": "^0.22.10",
-    "mp4-parser": "^1.0.1"
+    "axios": "^1.6.0"
   }
 }
