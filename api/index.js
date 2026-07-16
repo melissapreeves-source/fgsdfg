@@ -1,125 +1,99 @@
-const express = require('express');
-const axios = require('axios');
-const { spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const app = express();
+from flask import Flask, jsonify, request
+import cv2
+import urllib.request
+import os
+import tempfile
+import numpy as np
 
-app.get('/', (req, res) => {
-    res.json({ status: "Video frame server is running!" });
-});
+app = Flask(__name__)
 
-app.get('/video_info', async (req, res) => {
-    const videoUrl = req.query.url;
-    if (!videoUrl) {
-        return res.status(400).json({ error: 'Missing url parameter' });
-    }
+@app.route('/')
+def home():
+    return jsonify({"status": "Video frame server is running!"})
 
-    try {
-        const tempFile = path.join('/tmp', `video_${Date.now()}.mp4`);
+@app.route('/video_info')
+def video_info():
+    video_url = request.args.get('url')
+    if not video_url:
+        return jsonify({'error': 'Missing url parameter'}), 400
+    
+    temp_file = None
+    try:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+        urllib.request.urlretrieve(video_url, temp_file.name)
+        temp_file.close()
         
-        const response = await axios({
-            method: 'get',
-            url: videoUrl,
-            responseType: 'stream'
-        });
-        const writer = fs.createWriteStream(tempFile);
-        response.data.pipe(writer);
-        await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-
-        const { stdout } = await new Promise((resolve, reject) => {
-            const proc = spawn('ffprobe', [
-                '-v', 'error',
-                '-show_entries', 'stream=width,height,nb_frames,r_frame_rate',
-                '-of', 'json',
-                tempFile
-            ]);
-            let output = '';
-            proc.stdout.on('data', (data) => output += data.toString());
-            proc.on('close', () => resolve({ stdout: output }));
-            proc.on('error', reject);
-        });
-
-        fs.unlinkSync(tempFile);
-        const info = JSON.parse(stdout);
-        const stream = info.streams[0];
-        const fpsParts = stream.r_frame_rate.split('/');
-        const fps = parseInt(fpsParts[0]) / parseInt(fpsParts[1]);
-
-        res.json({
-            total_frames: parseInt(stream.nb_frames) || 300,
-            fps: Math.round(fps),
-            width: parseInt(stream.width),
-            height: parseInt(stream.height)
-        });
-    } catch (error) {
-        res.json({
-            total_frames: 300,
-            fps: 30,
-            width: 1920,
-            height: 1080
-        });
-    }
-});
-
-app.get('/get_frame', async (req, res) => {
-    const videoUrl = req.query.url;
-    const frameNum = parseInt(req.query.frame) || 0;
-    const width = parseInt(req.query.width) || 80;
-    const height = parseInt(req.query.height) || 60;
-
-    if (!videoUrl) {
-        return res.status(400).json({ error: 'Missing url parameter' });
-    }
-
-    try {
-        const tempFile = path.join('/tmp', `video_${Date.now()}.mp4`);
-        const outputFile = path.join('/tmp', `frame_${Date.now()}.raw`);
+        cap = cv2.VideoCapture(temp_file.name)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
         
-        const response = await axios({
-            method: 'get',
-            url: videoUrl,
-            responseType: 'stream'
-        });
-        const writer = fs.createWriteStream(tempFile);
-        response.data.pipe(writer);
-        await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
+        os.unlink(temp_file.name)
+        
+        return jsonify({
+            'total_frames': total_frames,
+            'fps': int(fps),
+            'width': width,
+            'height': height
+        })
+    except Exception as e:
+        if temp_file and os.path.exists(temp_file.name):
+            try:
+                os.unlink(temp_file.name)
+            except:
+                pass
+        return jsonify({'error': str(e)}), 500
 
-        await new Promise((resolve, reject) => {
-            const proc = spawn('ffmpeg', [
-                '-i', tempFile,
-                '-vf', `scale=${width}:${height},format=rgb24`,
-                '-frames:v', '1',
-                '-f', 'rawvideo',
-                '-pix_fmt', 'rgb24',
-                '-ss', `${frameNum/30}`,
-                outputFile
-            ]);
-            proc.on('close', resolve);
-            proc.on('error', reject);
-        });
+@app.route('/get_frame')
+def get_frame():
+    video_url = request.args.get('url')
+    frame_num = int(request.args.get('frame', 0))
+    width = int(request.args.get('width', 80))
+    height = int(request.args.get('height', 60))
+    
+    if not video_url:
+        return jsonify({'error': 'Missing url parameter'}), 400
+    
+    temp_file = None
+    try:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+        urllib.request.urlretrieve(video_url, temp_file.name)
+        temp_file.close()
+        
+        cap = cv2.VideoCapture(temp_file.name)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+        ret, frame = cap.read()
+        cap.release()
+        
+        # Delete video file immediately after reading
+        os.unlink(temp_file.name)
+        temp_file = None
+        
+        if not ret:
+            return jsonify({'error': 'Frame not found'}), 404
+        
+        frame = cv2.resize(frame, (width, height))
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pixels = frame_rgb.flatten().tolist()
+        
+        # Limit pixel data size
+        if len(pixels) > 100000:
+            pixels = pixels[:100000]
+        
+        return jsonify({
+            'frame': frame_num,
+            'width': width,
+            'height': height,
+            'pixels': pixels
+        })
+    except Exception as e:
+        if temp_file and os.path.exists(temp_file.name):
+            try:
+                os.unlink(temp_file.name)
+            except:
+                pass
+        return jsonify({'error': str(e)}), 500
 
-        const pixelData = fs.readFileSync(outputFile);
-        const pixels = Array.from(pixelData);
-
-        fs.unlinkSync(tempFile);
-        fs.unlinkSync(outputFile);
-
-        res.json({
-            frame: frameNum,
-            width: width,
-            height: height,
-            pixels: pixels
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-module.exports = app;
+app = app
