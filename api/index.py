@@ -3,7 +3,6 @@ import cv2
 import urllib.request
 import os
 import tempfile
-import numpy as np
 
 app = Flask(__name__)
 
